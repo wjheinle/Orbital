@@ -1,0 +1,942 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Orbital — Satellite Tracker</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Inter:wght@300;400;500;600&display=swap');
+  :root {
+    --space-black: #04060f; --deep-blue: #080d1f; --star-white: #e8eeff;
+    --dim-white: #8a9ac0; --accent-cyan: #00d4ff; --accent-gold: #f0c040;
+    --accent-green: #00ff88; --grid-line: rgba(0,212,255,0.07);
+    --card-bg: rgba(8,13,31,0.85); --card-border: rgba(0,212,255,0.15);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--space-black); color:var(--star-white); font-family:'Inter',sans-serif; min-height:100vh; overflow-x:hidden; }
+  #stars-canvas { position:fixed; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:0; }
+  .app { position:relative; z-index:1; max-width:420px; margin:0 auto; padding:0 0 80px 0; min-height:100vh; }
+  .header { padding:20px 20px 12px; border-bottom:1px solid var(--card-border); background:linear-gradient(180deg,rgba(4,6,15,.98) 0%,rgba(4,6,15,0) 100%); position:sticky; top:0; z-index:10; backdrop-filter:blur(12px); }
+  .header-top { display:flex; align-items:center; justify-content:space-between; margin-bottom:4px; }
+  .logo { font-family:'Space Mono',monospace; font-size:22px; font-weight:700; letter-spacing:-0.5px; }
+  .logo span { color:var(--accent-cyan); }
+  .header-right { display:flex; gap:8px; align-items:center; }
+  .icon-btn { width:38px; height:38px; border-radius:50%; border:1.5px solid var(--card-border); background:var(--card-bg); color:var(--dim-white); font-size:16px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.2s; flex-shrink:0; }
+  .icon-btn.active { border-color:var(--accent-cyan); color:var(--accent-cyan); box-shadow:0 0 12px rgba(0,212,255,0.3); }
+  .location-bar { font-size:11px; color:var(--dim-white); font-family:'Space Mono',monospace; letter-spacing:0.5px; }
+  .loc-name { color:var(--accent-cyan); }
+
+  /* Filter tabs */
+  .filter-bar { display:flex; gap:6px; padding:10px 12px 4px; overflow-x:auto; scrollbar-width:none; }
+  .filter-bar::-webkit-scrollbar { display:none; }
+  .filter-pill { font-family:'Space Mono',monospace; font-size:9px; letter-spacing:1px; padding:5px 12px; border-radius:20px; border:1px solid var(--card-border); background:var(--card-bg); color:var(--dim-white); cursor:pointer; white-space:nowrap; transition:all 0.18s; flex-shrink:0; }
+  .filter-pill.active { border-color:var(--accent-cyan); color:var(--accent-cyan); background:rgba(0,212,255,0.08); }
+  .filter-pill.loading { opacity:0.5; }
+
+  .sky-section { padding:16px 20px; display:flex; flex-direction:column; align-items:center; }
+  .sky-dome-wrap { position:relative; width:260px; height:260px; margin-bottom:14px; }
+  #sky-canvas { width:260px; height:260px; border-radius:50%; border:1.5px solid var(--card-border); box-shadow:0 0 40px rgba(0,212,255,0.08),inset 0 0 60px rgba(0,0,20,0.8); display:block; }
+  .dome-label { position:absolute; font-family:'Space Mono',monospace; font-size:9px; color:rgba(138,154,192,0.5); letter-spacing:1px; }
+  .dome-label.n { top:-14px; left:50%; transform:translateX(-50%); }
+  .dome-label.s { bottom:-14px; left:50%; transform:translateX(-50%); }
+  .dome-label.e { right:-14px; top:50%; transform:translateY(-50%); }
+  .dome-label.w { left:-14px; top:50%; transform:translateY(-50%); }
+
+  .overhead-banner { background:linear-gradient(135deg,rgba(0,212,255,0.08),rgba(0,255,136,0.06)); border:1px solid rgba(0,212,255,0.2); border-radius:14px; padding:12px 18px; width:100%; max-width:320px; display:flex; align-items:center; gap:12px; }
+  .overhead-dot { width:10px; height:10px; border-radius:50%; background:var(--accent-cyan); box-shadow:0 0 8px var(--accent-cyan); flex-shrink:0; animation:pulse 1.5s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)}50%{opacity:.6;transform:scale(.85)} }
+  .overhead-info { flex:1; min-width:0; }
+  .overhead-label { font-size:9px; font-family:'Space Mono',monospace; color:var(--dim-white); letter-spacing:1.5px; text-transform:uppercase; margin-bottom:2px; }
+  .overhead-name { font-size:15px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .overhead-sub { font-size:11px; color:var(--dim-white); font-family:'Space Mono',monospace; }
+
+  .section-label { font-family:'Space Mono',monospace; font-size:9px; letter-spacing:2px; color:var(--dim-white); text-transform:uppercase; padding:12px 20px 8px; border-top:1px solid var(--grid-line); }
+  .sat-list { padding:0 12px; display:flex; flex-direction:column; gap:7px; }
+  .sat-card { background:var(--card-bg); border:1px solid var(--card-border); border-radius:14px; padding:11px 14px; display:flex; align-items:center; gap:12px; cursor:pointer; transition:all 0.18s; backdrop-filter:blur(8px); }
+  .sat-card:active { transform:scale(0.98); }
+  .sat-card.overhead { border-color:var(--accent-cyan); background:rgba(0,212,255,0.05); }
+  .sat-card.station { border-color:rgba(240,192,64,0.4); background:rgba(240,192,64,0.04); }
+  .sat-icon { font-size:20px; flex-shrink:0; width:32px; text-align:center; }
+  .sat-info { flex:1; min-width:0; }
+  .sat-name { font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-bottom:2px; }
+  .sat-meta { font-family:'Space Mono',monospace; font-size:10px; color:var(--dim-white); }
+  .sat-right { display:flex; flex-direction:column; align-items:flex-end; gap:3px; flex-shrink:0; }
+  .sat-alt { font-family:'Space Mono',monospace; font-size:12px; color:var(--accent-cyan); }
+  .sat-badge { font-size:9px; font-family:'Space Mono',monospace; padding:2px 7px; border-radius:20px; letter-spacing:0.5px; }
+  .badge-overhead { background:rgba(0,212,255,0.15); color:var(--accent-cyan); border:1px solid rgba(0,212,255,0.3); }
+  .badge-station { background:rgba(240,192,64,0.12); color:var(--accent-gold); border:1px solid rgba(240,192,64,0.3); }
+  .badge-geo { background:rgba(138,154,192,0.1); color:var(--dim-white); border:1px solid rgba(138,154,192,0.2); }
+
+  .loading-state { padding:40px 20px; text-align:center; }
+  .loading-orbit { width:60px; height:60px; margin:0 auto 16px; position:relative; }
+  .loading-orbit::before { content:''; position:absolute; inset:0; border-radius:50%; border:2px solid transparent; border-top-color:var(--accent-cyan); animation:spin 1s linear infinite; }
+  .loading-orbit::after { content:'🛰'; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); font-size:22px; }
+  @keyframes spin { to{transform:rotate(360deg)} }
+  .loading-text { font-family:'Space Mono',monospace; font-size:11px; color:var(--dim-white); letter-spacing:1px; }
+
+  .status-bar { position:fixed; bottom:0; left:50%; transform:translateX(-50%); width:100%; max-width:420px; background:rgba(4,6,15,.96); border-top:1px solid var(--card-border); padding:10px 20px; display:flex; justify-content:space-between; align-items:center; backdrop-filter:blur(12px); z-index:10; }
+  .status-item { display:flex; flex-direction:column; align-items:center; gap:2px; }
+  .status-val { font-family:'Space Mono',monospace; font-size:13px; font-weight:700; color:var(--accent-cyan); }
+  .status-key { font-size:9px; color:var(--dim-white); letter-spacing:1px; text-transform:uppercase; }
+
+  .toast { position:fixed; top:80px; left:50%; transform:translateX(-50%) translateY(-10px); background:rgba(0,212,255,0.15); border:1px solid rgba(0,212,255,0.3); backdrop-filter:blur(12px); border-radius:24px; padding:10px 20px; font-family:'Space Mono',monospace; font-size:12px; color:var(--accent-cyan); z-index:100; opacity:0; transition:all 0.3s; white-space:nowrap; pointer-events:none; }
+  .toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+
+  /* ── Location Modal ── */
+  .loc-overlay { position:fixed; inset:0; background:rgba(2,4,12,0.85); backdrop-filter:blur(8px); z-index:200; display:flex; align-items:flex-end; justify-content:center; }
+  .loc-overlay.hidden { display:none; }
+  .loc-sheet { background:linear-gradient(180deg,#0a1128 0%,#060910 100%); border:1px solid var(--card-border); border-bottom:none; border-radius:24px 24px 0 0; padding:28px 24px 40px; width:100%; max-width:420px; }
+  .loc-handle { width:36px; height:4px; background:rgba(138,154,192,0.3); border-radius:2px; margin:0 auto 24px; }
+  .loc-title { font-family:'Space Mono',monospace; font-size:13px; font-weight:700; color:var(--star-white); letter-spacing:1px; margin-bottom:6px; }
+  .loc-sub { font-size:11px; color:var(--dim-white); margin-bottom:24px; }
+  .loc-options { display:flex; flex-direction:column; gap:10px; margin-bottom:20px; }
+  .loc-option { display:flex; align-items:center; gap:14px; padding:14px 16px; border:1px solid var(--card-border); border-radius:14px; background:var(--card-bg); cursor:pointer; transition:all 0.18s; }
+  .loc-option:active { transform:scale(0.98); }
+  .loc-option.selected { border-color:var(--accent-cyan); background:rgba(0,212,255,0.06); }
+  .loc-option-icon { font-size:22px; flex-shrink:0; width:32px; text-align:center; }
+  .loc-option-text { flex:1; }
+  .loc-option-label { font-size:14px; font-weight:600; color:var(--star-white); margin-bottom:2px; }
+  .loc-option-desc { font-size:11px; color:var(--dim-white); font-family:'Space Mono',monospace; }
+  .loc-check { width:18px; height:18px; border-radius:50%; border:1.5px solid var(--card-border); flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:10px; transition:all 0.15s; }
+  .loc-option.selected .loc-check { border-color:var(--accent-cyan); background:var(--accent-cyan); color:#000; }
+
+  /* input areas */
+  .loc-input-area { display:none; flex-direction:column; gap:10px; margin-top:4px; }
+  .loc-input-area.visible { display:flex; }
+  .loc-field { width:100%; padding:12px 14px; background:rgba(0,0,0,0.4); border:1px solid var(--card-border); border-radius:12px; color:var(--star-white); font-family:'Inter',sans-serif; font-size:14px; outline:none; transition:border-color 0.2s; }
+  .loc-field:focus { border-color:var(--accent-cyan); }
+  .loc-field::placeholder { color:var(--dim-white); }
+  .loc-coords-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .loc-confirm-btn { width:100%; padding:14px; background:var(--accent-cyan); border:none; border-radius:14px; color:#000; font-family:'Space Mono',monospace; font-size:12px; font-weight:700; letter-spacing:1px; cursor:pointer; margin-top:4px; transition:opacity 0.2s; }
+  .loc-confirm-btn:disabled { opacity:0.4; cursor:not-allowed; }
+  .loc-error { font-size:11px; color:var(--accent-red,#ff4466); font-family:'Space Mono',monospace; text-align:center; min-height:16px; }
+  .loc-spinner { display:inline-block; width:14px; height:14px; border:2px solid transparent; border-top-color:#000; border-radius:50%; animation:spin 0.7s linear infinite; vertical-align:middle; margin-right:6px; }
+
+  /* ── Sleep overlay ── */
+  .sleep-overlay { position:fixed; inset:0; background:rgba(2,4,12,0.92); backdrop-filter:blur(6px); z-index:150; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; cursor:pointer; }
+  .sleep-overlay.hidden { display:none; }
+  .sleep-icon { font-size:52px; opacity:0.6; animation:breathe 4s ease-in-out infinite; }
+  @keyframes breathe { 0%,100%{opacity:0.4;transform:scale(1)} 50%{opacity:0.7;transform:scale(1.06)} }
+  .sleep-title { font-family:'Space Mono',monospace; font-size:13px; color:var(--dim-white); letter-spacing:2px; }
+  .sleep-sub { font-family:'Space Mono',monospace; font-size:10px; color:rgba(138,154,192,0.5); letter-spacing:1px; }
+  .sleep-dot { width:6px; height:6px; border-radius:50%; background:var(--accent-cyan); opacity:0.3; animation:breathe 4s ease-in-out infinite; }
+</style>
+</head>
+<body>
+<canvas id="stars-canvas"></canvas>
+<div class="app">
+  <!-- Sleep overlay -->
+  <div class="sleep-overlay hidden" id="sleepOverlay" onclick="wakeUp()">
+    <div class="sleep-dot"></div>
+    <div class="sleep-icon">🛰</div>
+    <div class="sleep-title">ORBITAL SLEEPING</div>
+    <div class="sleep-sub">TAP TO WAKE</div>
+  </div>
+
+  <!-- Location Modal -->
+  <div class="loc-overlay" id="locOverlay">
+    <div class="loc-sheet">
+      <div class="loc-handle"></div>
+      <div class="loc-title">SET YOUR LOCATION</div>
+      <div class="loc-sub">Choose how to set your observer position</div>
+
+      <div class="loc-options">
+        <!-- Option 1: GPS -->
+        <div class="loc-option" id="optGPS" onclick="selectLocOption('gps')">
+          <div class="loc-option-icon">📍</div>
+          <div class="loc-option-text">
+            <div class="loc-option-label">Use My Location</div>
+            <div class="loc-option-desc">GPS via iPhone</div>
+          </div>
+          <div class="loc-check" id="checkGPS"></div>
+        </div>
+
+        <!-- Option 2: City -->
+        <div class="loc-option" id="optCity" onclick="selectLocOption('city')">
+          <div class="loc-option-icon">🏙</div>
+          <div class="loc-option-text">
+            <div class="loc-option-label">Enter City</div>
+            <div class="loc-option-desc">Search by city &amp; state</div>
+          </div>
+          <div class="loc-check" id="checkCity"></div>
+        </div>
+        <div class="loc-input-area" id="cityInput">
+          <input class="loc-field" id="cityField" type="text" placeholder="e.g. Denver, CO" autocomplete="off" />
+        </div>
+
+        <!-- Option 3: Coordinates -->
+        <div class="loc-option" id="optCoords" onclick="selectLocOption('coords')">
+          <div class="loc-option-icon">🌐</div>
+          <div class="loc-option-text">
+            <div class="loc-option-label">Enter Coordinates</div>
+            <div class="loc-option-desc">Latitude &amp; longitude</div>
+          </div>
+          <div class="loc-check" id="checkCoords"></div>
+        </div>
+        <div class="loc-input-area" id="coordsInput">
+          <div class="loc-coords-row">
+            <input class="loc-field" id="latField" type="number" step="0.0001" placeholder="Lat  39.5200" />
+            <input class="loc-field" id="lonField" type="number" step="0.0001" placeholder="Lon  -104.76" />
+          </div>
+        </div>
+      </div>
+
+      <div class="loc-error" id="locError"></div>
+      <button class="loc-confirm-btn" id="locConfirmBtn" onclick="confirmLocation()" disabled>
+        CONFIRM LOCATION
+      </button>
+    </div>
+  </div>
+
+  <div class="header">
+    <div class="header-top">
+      <div class="logo">ORBIT<span>AL</span></div>
+      <div class="header-right">
+        <button class="icon-btn" id="locBtn" title="Change location" onclick="openLocModal()">📍</button>
+        <button class="icon-btn active" id="voiceBtn" title="Voice">🔊</button>
+      </div>
+    </div>
+    <div class="location-bar">📍 <span class="loc-name" id="locName">Tap to set location</span><span id="locCoords"></span></div>
+  </div>
+
+  <!-- Filter pills -->
+  <div class="filter-bar" id="filterBar">
+    <div class="filter-pill active" data-group="all">ALL</div>
+    <div class="filter-pill" data-group="stations">STATIONS</div>
+    <div class="filter-pill" data-group="starlink">STARLINK</div>
+    <div class="filter-pill" data-group="visual">VISUAL</div>
+    <div class="filter-pill" data-group="weather">WEATHER</div>
+    <div class="filter-pill" data-group="gps">GPS</div>
+    <div class="filter-pill" data-group="oneweb">ONEWEB</div>
+    <div class="filter-pill" data-group="iridium">IRIDIUM</div>
+  </div>
+
+  <div class="sky-section">
+    <div class="sky-dome-wrap">
+      <canvas id="sky-canvas" width="260" height="260"></canvas>
+      <div class="dome-label n">N</div>
+      <div class="dome-label s">S</div>
+      <div class="dome-label e">E</div>
+      <div class="dome-label w">W</div>
+    </div>
+    <div class="overhead-banner" id="overheadBanner" style="display:none">
+      <div class="overhead-dot"></div>
+      <div class="overhead-info">
+        <div class="overhead-label">Overhead Now</div>
+        <div class="overhead-name" id="overheadName">—</div>
+        <div class="overhead-sub" id="overheadSub">—</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="mainContent">
+    <div class="loading-state">
+      <div class="loading-orbit"></div>
+      <div class="loading-text">ACQUIRING SATELLITES…</div>
+    </div>
+  </div>
+
+  <div class="status-bar">
+    <div class="status-item"><div class="status-val" id="statCount">—</div><div class="status-key">Tracked</div></div>
+    <div class="status-item"><div class="status-val" id="statOverhead">—</div><div class="status-key">Overhead</div></div>
+    <div class="status-item"><div class="status-val" id="statUpdated">—</div><div class="status-key">Updated</div></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════════
+// CONFIG — set your Railway URL after deploy
+// ═══════════════════════════════════════════════
+const PROXY_BASE = 'https://orbital-production.up.railway.app'; // ← update after Railway deploy
+
+// ═══════════════════════════════════════════════
+// CONSTANTS
+// ═══════════════════════════════════════════════
+const MU = 398600.4418; // km³/s²
+const RE = 6378.137;    // km Earth radius
+
+// ═══════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════
+let userLat = null, userLon = null;
+let allSatellites = [];       // full propagated list
+let displaySats = [];         // filtered for current view
+let voiceEnabled = true;
+let lastAnnounced = {};
+let activeGroup = 'all';
+let groupCache = {};          // raw TLE arrays by group name
+let loadedGroups = new Set();
+let updateInterval = null;
+
+// ═══════════════════════════════════════════════
+// FALLBACK TLEs (used if proxy not yet deployed)
+// ═══════════════════════════════════════════════
+const FALLBACK_TLES = [
+  { name:'ISS (ZARYA)',   type:'station',   line1:'1 25544U 98067A   26174.50000000  .00020000  00000-0  36000-3 0  9994', line2:'2 25544  51.6430 210.4321 0003456  89.4512 270.6734 15.49560000  6251' },
+  { name:'TIANGONG',      type:'station',   line1:'1 48274U 21035A   26174.50000000  .00015230  00000-0  17520-3 0  9994', line2:'2 48274  41.4749 346.1258 0005931 356.1688   3.9374 15.61558000148872' },
+  { name:'HUBBLE',        type:'telescope', line1:'1 20580U 90037B   26174.50000000  .00001480  00000-0  68418-4 0  9997', line2:'2 20580  28.4700 198.7354 0002575  64.4853 295.6370 15.09318000395512' },
+  { name:'STARLINK-1007', type:'starlink',  line1:'1 44713U 19074A   26174.50000000  .00002182  00000-0  16538-3 0  9994', line2:'2 44713  53.0537  24.5890 0001351  87.5665 272.5655 15.06381000238553' },
+  { name:'NOAA 19',       type:'weather',   line1:'1 33591U 09005A   26174.50000000  .00000088  00000-0  77745-4 0  9991', line2:'2 33591  99.1886  43.2123 0013617 320.4088  39.6121 14.12499000768124' },
+  { name:'TERRA',         type:'earth-obs', line1:'1 25994U 99068A   26174.50000000  .00000024  00000-0  27345-4 0  9997', line2:'2 25994  98.2133  39.8524 0000785  89.7453 270.3839 14.57148000271589' },
+  { name:'LANDSAT 9',     type:'earth-obs', line1:'1 49260U 21088A   26174.50000000  .00000050  00000-0  22395-4 0  9993', line2:'2 49260  98.2071  43.5236 0001256  91.2854 268.8474 14.57046000118234' },
+  { name:'GOES-18',       type:'weather',   line1:'1 51850U 22021A   26174.50000000 -.00000308  00000-0  00000+0 0  9993', line2:'2 51850   0.0519 202.0437 0000837  87.8437 229.4213  1.00270000  6921' },
+  { name:'GPS BIIR-2',    type:'nav',       line1:'1 24876U 97035A   26174.50000000 -.00000024  00000-0  00000+0 0  9999', line2:'2 24876  54.5344 168.9524 0152481 224.6040 134.0895  2.00563000193012' },
+];
+
+// ═══════════════════════════════════════════════
+// TLE GROUP → TYPE MAP
+// ═══════════════════════════════════════════════
+const GROUP_TYPE = {
+  stations: 'station', starlink: 'starlink', visual: 'visual',
+  weather: 'weather', gps: 'nav', oneweb: 'oneweb', iridium: 'comms',
+};
+
+const TYPE_EMOJI = {
+  station:'🛸', telescope:'🔭', starlink:'🛰', weather:'🌦',
+  'earth-obs':'🌍', nav:'📡', comms:'📻', oneweb:'🛰', visual:'✨', satellite:'🛰'
+};
+function satEmoji(t) { return TYPE_EMOJI[t] || '🛰'; }
+
+// ═══════════════════════════════════════════════
+// PROXY FETCH
+// ═══════════════════════════════════════════════
+async function fetchGroup(group) {
+  if (groupCache[group]) return groupCache[group];
+  const resp = await fetch(`${PROXY_BASE}/tle/${group}`, { signal: AbortSignal.timeout(12000) });
+  if (!resp.ok) throw new Error(`Proxy returned ${resp.status}`);
+  const data = await resp.json();
+  const tles = (data.tles || []).map(t => ({ ...t, type: GROUP_TYPE[group] || 'satellite' }));
+  groupCache[group] = tles;
+  loadedGroups.add(group);
+  return tles;
+}
+
+async function fetchISSLive() {
+  const resp = await fetch(`${PROXY_BASE}/iss`, { signal: AbortSignal.timeout(5000) });
+  if (!resp.ok) throw new Error('ISS proxy failed');
+  return await resp.json();
+}
+
+// ═══════════════════════════════════════════════
+// ORBIT MATH
+// ═══════════════════════════════════════════════
+function tleEpoch(line1) {
+  const yr2 = parseInt(line1.substring(18, 20));
+  const year = yr2 >= 57 ? 1900 + yr2 : 2000 + yr2;
+  const doy = parseFloat(line1.substring(20, 32));
+  const d = new Date(Date.UTC(year, 0, 1));
+  d.setTime(d.getTime() + (doy - 1) * 86400000);
+  return d;
+}
+
+function propagate(tle) {
+  const L2 = tle.line2;
+  const inclination  = parseFloat(L2.substring(8, 16));
+  const raan         = parseFloat(L2.substring(17, 25));
+  const eccentricity = parseFloat('0.' + L2.substring(26, 33).trim());
+  const argPerigee   = parseFloat(L2.substring(34, 42));
+  const meanAnomaly  = parseFloat(L2.substring(43, 51));
+  const meanMotion   = parseFloat(L2.substring(52, 63)); // rev/day
+
+  // Altitude from mean motion
+  const n   = meanMotion * 2 * Math.PI / 86400; // rad/s
+  const sma = Math.cbrt(MU / (n * n));           // km
+  const altKm = Math.round(sma - RE);
+  if (altKm < 100 || altKm > 50000) return null; // sanity check
+
+  const velKms = Math.round(Math.sqrt(MU / sma) * 10) / 10;
+
+  // Minutes since epoch
+  const epoch = tleEpoch(tle.line1);
+  const dtMin = (Date.now() - epoch.getTime()) / 60000;
+
+  const nRad = meanMotion * 2 * Math.PI / 1440; // rad/min
+  const M = ((meanAnomaly + nRad * dtMin * 180 / Math.PI) % 360 + 360) % 360;
+  const Mrad = M * Math.PI / 180;
+
+  // Kepler
+  let E = Mrad;
+  for (let i = 0; i < 8; i++) E -= (E - eccentricity * Math.sin(E) - Mrad) / (1 - eccentricity * Math.cos(E));
+
+  const cosE = Math.cos(E), sinE = Math.sin(E);
+  const v = Math.atan2(Math.sqrt(1 - eccentricity * eccentricity) * sinE, cosE - eccentricity);
+  const u = v + argPerigee * Math.PI / 180;
+
+  const incRad = inclination * Math.PI / 180;
+  const raanRad = raan * Math.PI / 180;
+  const r = sma * (1 - eccentricity * cosE);
+
+  const xOrb = r * Math.cos(u), yOrb = r * Math.sin(u);
+  const xECI = xOrb * Math.cos(raanRad) - yOrb * Math.cos(incRad) * Math.sin(raanRad);
+  const yECI = xOrb * Math.sin(raanRad) + yOrb * Math.cos(incRad) * Math.cos(raanRad);
+  const zECI = yOrb * Math.sin(incRad);
+
+  // GMST
+  const J2000 = new Date('2000-01-01T12:00:00Z').getTime();
+  const daysSinceJ2K = (Date.now() - J2000) / 86400000;
+  const gmst = ((280.46061837 + 360.98564736629 * daysSinceJ2K) % 360 + 360) % 360;
+  const theta = gmst * Math.PI / 180;
+
+  // ECI → ECEF
+  const xECEF =  xECI * Math.cos(theta) + yECI * Math.sin(theta);
+  const yECEF = -xECI * Math.sin(theta) + yECI * Math.cos(theta);
+  const zECEF =  zECI;
+
+  const lon = Math.atan2(yECEF, xECEF) * 180 / Math.PI;
+  const p   = Math.sqrt(xECEF * xECEF + yECEF * yECEF);
+  const lat = Math.atan2(zECEF, p) * 180 / Math.PI;
+
+  return { lat, lon, altKm, velKms };
+}
+
+function lookAngles(obsLat, obsLon, satLat, satLon, altKm) {
+  const toR = d => d * Math.PI / 180;
+  const tD  = r => r * 180 / Math.PI;
+  const olat = toR(obsLat), olon = toR(obsLon);
+  const slat = toR(satLat), slon = toR(satLon);
+  const dlon = slon - olon, dlat = slat - olat;
+  const a = Math.sin(dlat/2)**2 + Math.cos(olat)*Math.cos(slat)*Math.sin(dlon/2)**2;
+  const ca = 2 * Math.asin(Math.sqrt(Math.min(1, a)));
+  const elevation = tD(Math.atan2(Math.cos(ca) - RE/(RE + altKm), Math.sin(ca)));
+  const y = Math.sin(dlon) * Math.cos(slat);
+  const x = Math.cos(olat)*Math.sin(slat) - Math.sin(olat)*Math.cos(slat)*Math.cos(dlon);
+  const azimuth = (tD(Math.atan2(y, x)) + 360) % 360;
+  return { elevation: Math.round(elevation * 10) / 10, azimuth: Math.round(azimuth) };
+}
+
+function processTLEs(tles) {
+  const results = [];
+  for (const tle of tles) {
+    try {
+      const orb = propagate(tle);
+      if (!orb) continue;
+      const look = lookAngles(userLat, userLon, orb.lat, orb.lon, orb.altKm);
+      results.push({ name: tle.name, type: tle.type || 'satellite', ...orb, ...look });
+    } catch(e) {}
+  }
+  return results;
+}
+
+// ═══════════════════════════════════════════════
+// LOAD GROUP
+// ═══════════════════════════════════════════════
+async function loadGroup(group) {
+  markPillLoading(group, true);
+  try {
+    let tles;
+    if (group === 'all') {
+      // Load stations + visual as baseline
+      const [st, vi] = await Promise.all([fetchGroup('stations'), fetchGroup('visual')]);
+      tles = [...st, ...vi];
+    } else {
+      tles = await fetchGroup(group);
+    }
+    const processed = processTLEs(tles);
+    // Merge into allSatellites, dedup by name
+    const existing = new Map(allSatellites.map(s => [s.name, s]));
+    for (const s of processed) existing.set(s.name, s);
+    allSatellites = [...existing.values()].sort((a,b) => b.elevation - a.elevation);
+    return true;
+  } catch(e) {
+    console.warn('Proxy unavailable, using fallback:', e.message);
+    if (allSatellites.length === 0) {
+      allSatellites = processTLEs(FALLBACK_TLES).sort((a,b) => b.elevation - a.elevation);
+    }
+    return false;
+  } finally {
+    markPillLoading(group, false);
+  }
+}
+
+function markPillLoading(group, loading) {
+  document.querySelectorAll('.filter-pill').forEach(p => {
+    if (p.dataset.group === group || (group === 'all' && p.dataset.group === 'all')) {
+      p.classList.toggle('loading', loading);
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════
+// REFRESH — re-propagate loaded TLEs with current time
+// ═══════════════════════════════════════════════
+async function refresh() {
+  if (userLat === null) return;
+
+  // Re-propagate all cached TLEs
+  const allTLEs = [];
+  for (const [grp, tles] of Object.entries(groupCache)) {
+    allTLEs.push(...tles);
+  }
+  if (allTLEs.length > 0) {
+    const processed = processTLEs(allTLEs);
+    const existing = new Map(processed.map(s => [s.name, s]));
+    allSatellites = [...existing.values()].sort((a,b) => b.elevation - a.elevation);
+  }
+
+  // Try live ISS update
+  try {
+    const iss = await fetchISSLive();
+    const look = lookAngles(userLat, userLon, iss.latitude, iss.longitude, Math.round(iss.altitude));
+    const idx = allSatellites.findIndex(s => s.name.includes('ISS') || s.name.includes('ZARYA'));
+    const issObj = { name:'ISS (ZARYA)', type:'station', lat:iss.latitude, lon:iss.longitude, altKm:Math.round(iss.altitude), velKms:Math.round(iss.velocity/3.6*10)/10, ...look };
+    if (idx >= 0) allSatellites[idx] = issObj;
+    else allSatellites.unshift(issObj);
+    allSatellites.sort((a,b) => b.elevation - a.elevation);
+  } catch(e) {}
+
+  renderAll();
+}
+
+// ═══════════════════════════════════════════════
+// RENDER
+// ═══════════════════════════════════════════════
+function getDisplaySats() {
+  if (activeGroup === 'all') return allSatellites;
+  return allSatellites.filter(s => {
+    if (activeGroup === 'stations') return s.type === 'station';
+    if (activeGroup === 'starlink') return s.type === 'starlink';
+    if (activeGroup === 'visual')   return s.type === 'visual' || s.type === 'telescope' || s.type === 'earth-obs';
+    if (activeGroup === 'weather')  return s.type === 'weather';
+    if (activeGroup === 'gps')      return s.type === 'nav';
+    if (activeGroup === 'oneweb')   return s.type === 'oneweb';
+    if (activeGroup === 'iridium')  return s.type === 'comms';
+    return true;
+  });
+}
+
+function renderAll() {
+  displaySats = getDisplaySats();
+  const visible = displaySats.filter(s => s.elevation >= 0);
+  const below   = displaySats.filter(s => s.elevation < 0);
+  const container = document.getElementById('mainContent');
+
+  let html = '';
+
+  if (visible.length > 0) {
+    html += `<div class="section-label">Above Horizon · ${visible.length}</div><div class="sat-list">`;
+    visible.slice(0, 80).forEach(sat => {
+      const isStation = sat.type === 'station';
+      const isOverhead = sat.elevation > 45;
+      const isGeo = sat.altKm > 30000;
+      const cls = isStation ? 'sat-card station' : isOverhead ? 'sat-card overhead' : 'sat-card';
+      const badge = isStation ? `<div class="sat-badge badge-station">STATION</div>`
+                  : isGeo    ? `<div class="sat-badge badge-geo">GEO</div>`
+                  : isOverhead ? `<div class="sat-badge badge-overhead">OVERHEAD</div>` : '';
+      html += `<div class="${cls}" onclick="announceSat('${sat.name.replace(/'/g,"\\'")}')">
+        <div class="sat-icon">${satEmoji(sat.type)}</div>
+        <div class="sat-info">
+          <div class="sat-name">${sat.name}</div>
+          <div class="sat-meta">Az ${sat.azimuth}° &middot; El ${sat.elevation.toFixed(1)}°</div>
+        </div>
+        <div class="sat-right">
+          <div class="sat-alt">${sat.altKm.toLocaleString()} km</div>
+          ${badge}
+        </div>
+      </div>`;
+    });
+    html += '</div>';
+    if (visible.length > 80) html += `<div class="section-label" style="color:var(--accent-cyan)">${visible.length - 80} more above horizon…</div>`;
+  }
+
+  if (below.length > 0) {
+    html += `<div class="section-label">Below Horizon · ${below.length}</div><div class="sat-list">`;
+    below.slice(0, 20).forEach(sat => {
+      html += `<div class="sat-card" onclick="announceSat('${sat.name.replace(/'/g,"\\'")}')">
+        <div class="sat-icon" style="opacity:.4">${satEmoji(sat.type)}</div>
+        <div class="sat-info">
+          <div class="sat-name" style="color:var(--dim-white)">${sat.name}</div>
+          <div class="sat-meta">Az ${sat.azimuth}° &middot; El ${sat.elevation.toFixed(1)}°</div>
+        </div>
+        <div class="sat-right">
+          <div class="sat-alt" style="color:var(--dim-white)">${sat.altKm.toLocaleString()} km</div>
+        </div>
+      </div>`;
+    });
+    html += '</div>';
+  }
+
+  if (displaySats.length === 0) {
+    html = `<div style="padding:30px;text-align:center;font-family:Space Mono;font-size:11px;color:var(--dim-white)">No satellites in this group yet</div>`;
+  }
+
+  container.innerHTML = html;
+
+  // Overhead banner
+  const top = visible[0];
+  const banner = document.getElementById('overheadBanner');
+  if (top) {
+    banner.style.display = 'flex';
+    document.getElementById('overheadName').textContent = top.name;
+    document.getElementById('overheadSub').textContent =
+      `${top.altKm.toLocaleString()} km · El ${top.elevation.toFixed(1)}° · ${top.velKms} km/s`;
+    if (voiceEnabled) {
+      const now = Date.now();
+      if (!lastAnnounced[top.name] || now - lastAnnounced[top.name] > 90000) {
+        lastAnnounced[top.name] = now;
+        speak(`${top.name} is overhead`);
+      }
+    }
+  } else {
+    banner.style.display = 'none';
+  }
+
+  // Status bar
+  document.getElementById('statCount').textContent = allSatellites.length.toLocaleString();
+  document.getElementById('statOverhead').textContent = allSatellites.filter(s => s.elevation >= 0).length;
+  const t = new Date();
+  document.getElementById('statUpdated').textContent =
+    t.getHours().toString().padStart(2,'0') + ':' +
+    t.getMinutes().toString().padStart(2,'0') + ':' +
+    t.getSeconds().toString().padStart(2,'0');
+
+  drawSkyDome(displaySats);
+}
+
+// ═══════════════════════════════════════════════
+// SKY DOME
+// ═══════════════════════════════════════════════
+function drawSkyDome(sats) {
+  const c = document.getElementById('sky-canvas');
+  const ctx = c.getContext('2d');
+  const W = c.width, H = c.height, cx = W/2, cy = H/2, R = W/2 - 4;
+  ctx.clearRect(0, 0, W, H);
+  const bg = ctx.createRadialGradient(cx, cy, 0, cx, cy, R);
+  bg.addColorStop(0, '#080d1f'); bg.addColorStop(1, '#02040b');
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI*2); ctx.fillStyle = bg; ctx.fill();
+  ctx.strokeStyle = 'rgba(0,212,255,0.07)'; ctx.lineWidth = 1;
+  [0.25, 0.5, 0.75, 1.0].forEach(f => { ctx.beginPath(); ctx.arc(cx, cy, R*f, 0, Math.PI*2); ctx.stroke(); });
+  ctx.beginPath(); ctx.moveTo(cx, cy-R); ctx.lineTo(cx, cy+R); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx-R, cy); ctx.lineTo(cx+R, cy); ctx.stroke();
+  ctx.fillStyle = 'rgba(138,154,192,0.35)'; ctx.font = '8px Space Mono'; ctx.textAlign = 'center';
+  ctx.fillText('30°', cx, cy - R*0.5 - 3); ctx.fillText('60°', cx, cy - R*0.25 - 3);
+  ctx.beginPath(); ctx.arc(cx, cy, 3, 0, Math.PI*2); ctx.fillStyle = 'rgba(0,212,255,0.4)'; ctx.fill();
+
+  // Sample max 300 sats for dome (Starlink can be thousands)
+  const sample = sats.slice(0, 300);
+  sample.forEach(sat => {
+    if (sat.elevation < -15) return;
+    const el = Math.max(sat.elevation, 0);
+    const az = (sat.azimuth - 90 + 360) % 360;
+    const azRad = az * Math.PI / 180;
+    const dist = R * (1 - el / 90);
+    const sx = cx + dist * Math.cos(azRad);
+    const sy = cy + dist * Math.sin(azRad);
+    const isStation = sat.type === 'station';
+    const color = isStation ? '#f0c040' : sat.elevation > 30 ? '#00d4ff' : '#00ff88';
+    const size = isStation ? 5 : sat.elevation > 30 ? 3 : 2;
+    const alpha = sat.elevation >= 0 ? 1 : 0.2;
+    ctx.globalAlpha = alpha;
+    if (isStation || sat.elevation > 40) {
+      const glow = ctx.createRadialGradient(sx, sy, 0, sx, sy, size+5);
+      glow.addColorStop(0, color+'55'); glow.addColorStop(1, 'transparent');
+      ctx.beginPath(); ctx.arc(sx, sy, size+5, 0, Math.PI*2); ctx.fillStyle = glow; ctx.fill();
+    }
+    ctx.beginPath(); ctx.arc(sx, sy, size, 0, Math.PI*2); ctx.fillStyle = color; ctx.fill();
+    ctx.globalAlpha = 1;
+    if (sat.elevation > 20 && size >= 3) {
+      ctx.font = '8px Inter'; ctx.fillStyle = color; ctx.textAlign = 'left'; ctx.globalAlpha = 0.8;
+      ctx.fillText(sat.name.split(' ')[0], sx + size + 3, sy + 3);
+      ctx.globalAlpha = 1;
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════
+// VOICE
+// ═══════════════════════════════════════════════
+function speak(text) {
+  if (!voiceEnabled || !window.speechSynthesis) return;
+  window.speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.rate = 0.92; u.pitch = 1.0; u.volume = 1.0;
+  window.speechSynthesis.speak(u);
+}
+
+function announceSat(name) {
+  const sat = allSatellites.find(s => s.name === name);
+  if (!sat) return;
+  const pos = sat.elevation >= 0
+    ? `at ${sat.elevation.toFixed(0)} degrees elevation`
+    : 'currently below the horizon';
+  speak(`${name}, ${pos}, at ${sat.altKm.toLocaleString()} kilometers`);
+  showToast(`📡 ${name}`);
+}
+window.announceSat = announceSat;
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+document.getElementById('voiceBtn').addEventListener('click', () => {
+  voiceEnabled = !voiceEnabled;
+  const btn = document.getElementById('voiceBtn');
+  btn.textContent = voiceEnabled ? '🔊' : '🔇';
+  btn.classList.toggle('active', voiceEnabled);
+  showToast(voiceEnabled ? 'Voice ON' : 'Voice OFF');
+  if (voiceEnabled) speak('Voice enabled');
+});
+
+// ═══════════════════════════════════════════════
+// FILTER PILLS
+// ═══════════════════════════════════════════════
+document.getElementById('filterBar').addEventListener('click', async (e) => {
+  const pill = e.target.closest('.filter-pill');
+  if (!pill) return;
+  const group = pill.dataset.group;
+  activeGroup = group;
+  document.querySelectorAll('.filter-pill').forEach(p => p.classList.toggle('active', p.dataset.group === group));
+
+  // Load group if not yet fetched
+  if (!loadedGroups.has(group) && group !== 'all') {
+    showToast(`Loading ${group}…`);
+    await loadGroup(group);
+    loadedGroups.add(group);
+  }
+  renderAll();
+});
+
+// ═══════════════════════════════════════════════
+// STARS
+// ═══════════════════════════════════════════════
+function initStars() {
+  const c = document.getElementById('stars-canvas');
+  c.width = window.innerWidth; c.height = window.innerHeight;
+  const ctx = c.getContext('2d');
+  const stars = Array.from({length:240}, () => ({
+    x:Math.random()*c.width, y:Math.random()*c.height,
+    r:Math.random()*1.2+0.2, a:Math.random()*0.7+0.15,
+    phase:Math.random()*Math.PI*2, speed:Math.random()*0.004+0.001
+  }));
+  let t = 0;
+  (function draw() {
+    ctx.clearRect(0,0,c.width,c.height); t += 0.016;
+    stars.forEach(s => {
+      const a = s.a*(0.7+0.3*Math.sin(t*s.speed*60+s.phase));
+      ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,Math.PI*2);
+      ctx.fillStyle = `rgba(200,220,255,${a})`; ctx.fill();
+    });
+    requestAnimationFrame(draw);
+  })();
+}
+
+// ═══════════════════════════════════════════════
+// LOCATION MODAL
+// ═══════════════════════════════════════════════
+let selectedLocMethod = null;
+
+function openLocModal() {
+  document.getElementById('locOverlay').classList.remove('hidden');
+  // Reset state
+  selectedLocMethod = null;
+  ['GPS','City','Coords'].forEach(k => {
+    document.getElementById('opt'+k).classList.remove('selected');
+    document.getElementById('check'+k).textContent = '';
+  });
+  document.getElementById('cityInput').classList.remove('visible');
+  document.getElementById('coordsInput').classList.remove('visible');
+  document.getElementById('locError').textContent = '';
+  document.getElementById('locConfirmBtn').disabled = true;
+  document.getElementById('locConfirmBtn').textContent = 'CONFIRM LOCATION';
+}
+window.openLocModal = openLocModal;
+
+function selectLocOption(method) {
+  selectedLocMethod = method;
+  // Reset all
+  ['GPS','City','Coords'].forEach(k => {
+    document.getElementById('opt'+k).classList.remove('selected');
+    document.getElementById('check'+k).textContent = '';
+  });
+  document.getElementById('cityInput').classList.remove('visible');
+  document.getElementById('coordsInput').classList.remove('visible');
+  document.getElementById('locError').textContent = '';
+
+  // Activate selected
+  const keyMap = { gps:'GPS', city:'City', coords:'Coords' };
+  const k = keyMap[method];
+  document.getElementById('opt'+k).classList.add('selected');
+  document.getElementById('check'+k).textContent = '✓';
+
+  if (method === 'city') document.getElementById('cityInput').classList.add('visible');
+  if (method === 'coords') document.getElementById('coordsInput').classList.add('visible');
+
+  document.getElementById('locConfirmBtn').disabled = false;
+}
+window.selectLocOption = selectLocOption;
+
+async function confirmLocation() {
+  const btn = document.getElementById('locConfirmBtn');
+  const errEl = document.getElementById('locError');
+  errEl.textContent = '';
+
+  if (!selectedLocMethod) return;
+
+  if (selectedLocMethod === 'gps') {
+    btn.innerHTML = '<span class="loc-spinner"></span>LOCATING…';
+    btn.disabled = true;
+    try {
+      const pos = await new Promise((res, rej) =>
+        navigator.geolocation.getCurrentPosition(res, rej, { timeout: 10000 })
+      );
+      userLat = pos.coords.latitude;
+      userLon = pos.coords.longitude;
+      await reverseGeocode(userLat, userLon);
+      closeModalAndLoad();
+    } catch(e) {
+      errEl.textContent = 'Location access denied. Try another option.';
+      btn.innerHTML = 'CONFIRM LOCATION';
+      btn.disabled = false;
+    }
+    return;
+  }
+
+  if (selectedLocMethod === 'city') {
+    const query = document.getElementById('cityField').value.trim();
+    if (!query) { errEl.textContent = 'Enter a city name'; return; }
+    btn.innerHTML = '<span class="loc-spinner"></span>SEARCHING…';
+    btn.disabled = true;
+    try {
+      const resp = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`,
+        { signal: AbortSignal.timeout(8000) }
+      );
+      const results = await resp.json();
+      if (!results || results.length === 0) throw new Error('City not found');
+      userLat = parseFloat(results[0].lat);
+      userLon = parseFloat(results[0].lon);
+      const displayName = results[0].display_name.split(',').slice(0, 2).join(',').trim();
+      setLocationDisplay(displayName, userLat, userLon);
+      closeModalAndLoad();
+    } catch(e) {
+      errEl.textContent = e.message === 'City not found' ? 'City not found. Try "Denver, CO"' : 'Search failed. Check connection.';
+      btn.innerHTML = 'CONFIRM LOCATION';
+      btn.disabled = false;
+    }
+    return;
+  }
+
+  if (selectedLocMethod === 'coords') {
+    const lat = parseFloat(document.getElementById('latField').value);
+    const lon = parseFloat(document.getElementById('lonField').value);
+    if (isNaN(lat) || isNaN(lon)) { errEl.textContent = 'Enter valid lat and lon numbers'; return; }
+    if (lat < -90 || lat > 90)   { errEl.textContent = 'Latitude must be between -90 and 90'; return; }
+    if (lon < -180 || lon > 180) { errEl.textContent = 'Longitude must be between -180 and 180'; return; }
+    userLat = lat; userLon = lon;
+    btn.innerHTML = '<span class="loc-spinner"></span>LOADING…';
+    btn.disabled = true;
+    await reverseGeocode(userLat, userLon);
+    closeModalAndLoad();
+    return;
+  }
+}
+window.confirmLocation = confirmLocation;
+
+async function reverseGeocode(lat, lon) {
+  try {
+    const resp = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`,
+      { signal: AbortSignal.timeout(5000) }
+    );
+    const gd = await resp.json();
+    const city = gd.address?.city || gd.address?.town || gd.address?.village || gd.address?.county || 'Your Location';
+    setLocationDisplay(city, lat, lon);
+  } catch(e) {
+    setLocationDisplay('Your Location', lat, lon);
+  }
+}
+
+function setLocationDisplay(name, lat, lon) {
+  document.getElementById('locName').textContent = name;
+  document.getElementById('locCoords').textContent = ` (${lat.toFixed(2)}°, ${lon.toFixed(2)}°)`;
+}
+
+function closeModalAndLoad() {
+  document.getElementById('locOverlay').classList.add('hidden');
+  document.getElementById('locConfirmBtn').innerHTML = 'CONFIRM LOCATION';
+  document.getElementById('locConfirmBtn').disabled = false;
+  startTracking();
+}
+
+// Enter key support
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('cityField').addEventListener('keydown', e => { if (e.key === 'Enter') confirmLocation(); });
+  document.getElementById('latField').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('lonField').focus(); });
+  document.getElementById('lonField').addEventListener('keydown', e => { if (e.key === 'Enter') confirmLocation(); });
+});
+
+// ═══════════════════════════════════════════════
+// START TRACKING (called after location confirmed)
+// ═══════════════════════════════════════════════
+// SLEEP / WAKE
+// ═══════════════════════════════════════════════
+const SLEEP_AFTER_MS = 15 * 60 * 1000; // 15 minutes
+let sleepTimer = null;
+let isSleeping = false;
+
+function resetSleepTimer() {
+  if (isSleeping) return; // don't reset if already asleep — wakeUp() handles it
+  clearTimeout(sleepTimer);
+  sleepTimer = setTimeout(goToSleep, SLEEP_AFTER_MS);
+}
+
+function goToSleep() {
+  if (isSleeping) return;
+  isSleeping = true;
+  clearInterval(updateInterval);
+  updateInterval = null;
+  document.getElementById('sleepOverlay').classList.remove('hidden');
+  // Dim the status bar updated time
+  document.getElementById('statUpdated').textContent = 'ZZZ';
+}
+
+function wakeUp() {
+  if (!isSleeping) return;
+  isSleeping = false;
+  document.getElementById('sleepOverlay').classList.add('hidden');
+  refresh(); // immediate update
+  updateInterval = setInterval(refresh, 10000);
+  resetSleepTimer();
+}
+
+// Track any user interaction to reset sleep timer
+['touchstart', 'touchend', 'click', 'scroll'].forEach(evt => {
+  document.addEventListener(evt, () => { if (!isSleeping) resetSleepTimer(); }, { passive: true });
+});
+
+// ═══════════════════════════════════════════════
+// START TRACKING (called after location confirmed)
+// ═══════════════════════════════════════════════
+async function startTracking() {
+  if (updateInterval) clearInterval(updateInterval);
+  clearTimeout(sleepTimer);
+  isSleeping = false;
+  document.getElementById('sleepOverlay').classList.add('hidden');
+  groupCache = {};
+  allSatellites = [];
+  loadedGroups = new Set();
+
+  document.getElementById('mainContent').innerHTML = `<div class="loading-state"><div class="loading-orbit"></div><div class="loading-text">LOADING SATELLITES…</div></div>`;
+
+  await loadGroup('all');
+  loadedGroups.add('stations'); loadedGroups.add('visual');
+  renderAll();
+  updateInterval = setInterval(refresh, 10000);
+  resetSleepTimer(); // start the sleep countdown
+}
+
+// ═══════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════
+async function init() {
+  // Always show location picker on first load
+  openLocModal();
+}
+
+initStars();
+init();
+</script>
+</body>
+</html>

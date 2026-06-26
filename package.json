@@ -1,0 +1,13 @@
+{
+  "name": "orbital-proxy",
+  "version": "1.0.0",
+  "description": "TLE proxy server for Orbital satellite tracker",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "node-fetch": "^2.7.0"
+  }
+}
