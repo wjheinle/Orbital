@@ -21,46 +21,85 @@ app.get('/', (req, res) => {
 
 // ── Cache ──────────────────────────────────────────────────
 const cache = {};
-const CACHE_TTL = 2 * 60 * 60 * 1000; // 2 hours — matches Celestrak update cycle
+const CACHE_TTL = 2 * 60 * 60 * 1000; // 2 hours
 
-// Correct Celestrak GP element set URLs
-// https://celestrak.org/NORAD/documentation/gp-data-formats.php
-const CELESTRAK_GROUPS = {
-  stations: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=TLE',
-  visual:   'https://celestrak.org/NORAD/elements/gp.php?GROUP=visual&FORMAT=TLE',
-  starlink: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=TLE',
-  weather:  'https://celestrak.org/NORAD/elements/gp.php?GROUP=weather&FORMAT=TLE',
-  gps:      'https://celestrak.org/NORAD/elements/gp.php?GROUP=gps-ops&FORMAT=TLE',
-  oneweb:   'https://celestrak.org/NORAD/elements/gp.php?GROUP=oneweb&FORMAT=TLE',
-  iridium:  'https://celestrak.org/NORAD/elements/gp.php?GROUP=iridium-NEXT&FORMAT=TLE',
-};
+const VALID_GROUPS = ['stations', 'visual', 'starlink', 'weather', 'gps', 'oneweb', 'iridium'];
 
-const VALID_GROUPS = Object.keys(CELESTRAK_GROUPS);
+// ── Multi-source TLE fetcher ───────────────────────────────
+// Each group has multiple sources tried in order until one succeeds.
+// Sources chosen for reliability from cloud/VPS IPs.
 
-// ── TLE fetcher ────────────────────────────────────────────
-async function fetchTLEsFromCelestrak(group) {
-  const url = CELESTRAK_GROUPS[group];
-  console.log(`[${new Date().toISOString()}] Fetching ${group} from Celestrak...`);
+function getSources(group) {
+  // Celestrak uses different group name for gps
+  const celestrakGroup = group === 'gps' ? 'gps-ops' : group === 'iridium' ? 'iridium-NEXT' : group;
 
-  const resp = await fetch(url, {
-    headers: {
-      'User-Agent': 'Orbital-Tracker/1.0 (github.com/wjheinle/Orbital; one request per 2hr cache)',
+  return [
+    // Source 1: Celestrak .org GP endpoint
+    {
+      name: 'celestrak.org',
+      url: `https://celestrak.org/NORAD/elements/gp.php?GROUP=${celestrakGroup}&FORMAT=TLE`,
+      timeout: 15000,
     },
-    timeout: 20000,
-  });
+    // Source 2: Celestrak .com (different server)
+    {
+      name: 'celestrak.com',
+      url: `https://celestrak.com/NORAD/elements/gp.php?GROUP=${celestrakGroup}&FORMAT=TLE`,
+      timeout: 15000,
+    },
+    // Source 3: lulu.ac.nz public TLE mirror
+    {
+      name: 'tle.lulu.ac.nz',
+      url: `https://tle.lulu.ac.nz/?c=${celestrakGroup}&f=tle`,
+      timeout: 10000,
+    },
+  ];
+}
 
-  if (resp.status === 403) {
-    throw new Error(`Celestrak rate limited (403) for group "${group}" — retry after 2hr cache expires`);
+async function fetchWithTimeout(url, options = {}) {
+  const { timeout = 10000, ...rest } = options;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  try {
+    const resp = await fetch(url, { ...rest, signal: controller.signal });
+    return resp;
+  } finally {
+    clearTimeout(timer);
   }
-  if (!resp.ok) {
-    throw new Error(`Celestrak returned HTTP ${resp.status} for group "${group}"`);
+}
+
+async function fetchTLEs(group) {
+  const sources = getSources(group);
+  const errors = [];
+
+  for (const src of sources) {
+    try {
+      console.log(`[${new Date().toISOString()}] [${group}] Trying ${src.name}...`);
+      const resp = await fetchWithTimeout(src.url, {
+        timeout: src.timeout,
+        headers: {
+          'User-Agent': 'OrbitalTracker/1.0 (github.com/wjheinle/Orbital)',
+          'Accept': 'text/plain',
+        },
+      });
+
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const text = await resp.text();
+      if (!text || text.trim().length < 50) throw new Error('Response too short');
+      if (!text.includes('1 ') && !text.includes('2 ')) throw new Error('Not valid TLE data');
+
+      const tles = parseTLEText(text);
+      if (tles.length === 0) throw new Error('No TLEs parsed');
+
+      console.log(`[${new Date().toISOString()}] [${group}] ${src.name} OK: ${tles.length} TLEs`);
+      return tles;
+    } catch (e) {
+      const msg = `${src.name}: ${e.message}`;
+      console.warn(`[${new Date().toISOString()}] [${group}] FAIL ${msg}`);
+      errors.push(msg);
+    }
   }
 
-  const text = await resp.text();
-  if (!text || text.trim().length < 20) {
-    throw new Error(`Empty or invalid response for group "${group}"`);
-  }
-  return text;
+  throw new Error(`All sources failed for "${group}": ${errors.join(' | ')}`);
 }
 
 function parseTLEText(text) {
@@ -83,26 +122,44 @@ function parseTLEText(text) {
 async function getCached(group) {
   const now = Date.now();
   if (cache[group] && (now - cache[group].ts) < CACHE_TTL) {
-    console.log(`[${new Date().toISOString()}] Cache hit for "${group}" (${cache[group].data.length} TLEs, age ${Math.round((now - cache[group].ts)/60000)}min)`);
     return cache[group].data;
   }
-  const text = await fetchTLEsFromCelestrak(group);
-  const tles = parseTLEText(text);
-  cache[group] = { ts: now, data: tles };
-  console.log(`[${new Date().toISOString()}] Cached "${group}": ${tles.length} TLEs`);
+  const tles = await fetchTLEs(group);
+  cache[group] = { ts: now, data: tles, source: 'fetched' };
   return tles;
 }
 
 // ── ISS live position ──────────────────────────────────────
 async function fetchISSPosition() {
-  const resp = await fetch('https://api.wheretheiss.at/v1/satellites/25544', { timeout: 6000 });
-  if (!resp.ok) throw new Error(`wheretheiss.at returned HTTP ${resp.status}`);
-  return await resp.json();
+  // Try two sources for ISS live position
+  const sources = [
+    'https://api.wheretheiss.at/v1/satellites/25544',
+    'https://api.open-notify.org/iss-now.json',
+  ];
+  for (const url of sources) {
+    try {
+      const resp = await fetchWithTimeout(url, { timeout: 6000 });
+      if (!resp.ok) continue;
+      const data = await resp.json();
+      // Normalize open-notify format
+      if (data.iss_position) {
+        return {
+          latitude: parseFloat(data.iss_position.latitude),
+          longitude: parseFloat(data.iss_position.longitude),
+          altitude: 420,
+          velocity: 27600,
+        };
+      }
+      return data;
+    } catch (e) {
+      console.warn(`ISS source ${url} failed: ${e.message}`);
+    }
+  }
+  throw new Error('All ISS sources failed');
 }
 
 // ── Routes ─────────────────────────────────────────────────
 
-// GET /tle/:group
 app.get('/tle/:group', async (req, res) => {
   const { group } = req.params;
   if (!VALID_GROUPS.includes(group)) {
@@ -118,16 +175,11 @@ app.get('/tle/:group', async (req, res) => {
   }
 });
 
-// GET /tle/multi?groups=starlink,stations,visual
 app.get('/tle/multi', async (req, res) => {
   const requested = (req.query.groups || 'stations,visual')
-    .split(',')
-    .map(g => g.trim())
-    .filter(g => VALID_GROUPS.includes(g))
-    .slice(0, 6);
-
+    .split(',').map(g => g.trim()).filter(g => VALID_GROUPS.includes(g)).slice(0, 6);
   if (requested.length === 0) {
-    return res.status(400).json({ error: 'No valid groups requested', valid: VALID_GROUPS });
+    return res.status(400).json({ error: 'No valid groups', valid: VALID_GROUPS });
   }
   try {
     const results = {};
@@ -142,18 +194,14 @@ app.get('/tle/multi', async (req, res) => {
   }
 });
 
-// GET /iss
 app.get('/iss', async (req, res) => {
   try {
-    const data = await fetchISSPosition();
-    res.json(data);
+    res.json(await fetchISSPosition());
   } catch (e) {
-    console.error('[ERROR] /iss:', e.message);
     res.status(502).json({ error: e.message });
   }
 });
 
-// GET /health
 app.get('/health', (req, res) => {
   const cacheStatus = {};
   for (const [k, v] of Object.entries(cache)) {
@@ -166,28 +214,25 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', uptime_s: Math.round(process.uptime()), cache: cacheStatus, groups: VALID_GROUPS });
 });
 
-// GET /api — info
 app.get('/api', (req, res) => {
   res.json({
     name: 'Orbital TLE Proxy',
     repo: 'github.com/wjheinle/Orbital',
-    source: 'celestrak.org/NORAD/elements/gp.php',
+    sources: ['celestrak.org', 'celestrak.com', 'tle.lulu.ac.nz'],
     endpoints: {
       'GET /':                  'Orbital PWA',
       'GET /tle/:group':        `Groups: ${VALID_GROUPS.join(' | ')}`,
-      'GET /tle/multi?groups=': 'Comma-separated groups (max 6)',
+      'GET /tle/multi?groups=': 'Batch fetch (max 6)',
       'GET /iss':               'Live ISS position',
       'GET /health':            'Cache status',
     },
-    cache_ttl: '2 hours',
   });
 });
 
 // ── Start ──────────────────────────────────────────────────
 app.listen(PORT, () => {
-  console.log(`Orbital proxy listening on port ${PORT}`);
-  // Pre-warm stations + visual on boot
+  console.log(`Orbital proxy on port ${PORT}`);
   ['stations', 'visual'].forEach(g => {
-    getCached(g).catch(e => console.warn(`Pre-warm "${g}" failed:`, e.message));
+    getCached(g).catch(e => console.warn(`Pre-warm "${g}":`, e.message));
   });
 });
