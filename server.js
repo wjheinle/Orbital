@@ -1,5 +1,6 @@
 const express = require('express');
 const fetch = require('node-fetch');
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -13,12 +14,15 @@ app.use((req, res, next) => {
   next();
 });
 
+// ── Serve the PWA ─────────────────────────────────────────
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'satellite-tracker.html'));
+});
+
 // ── Cache ──────────────────────────────────────────────────
 const cache = {};
 const CACHE_TTL = 2 * 60 * 60 * 1000; // 2 hours
 
-// Celestrak GP TLE feeds by group name
-// Full list: https://celestrak.org/SOCRATES/
 const CELESTRAK_GROUPS = {
   stations: 'https://celestrak.org/SOCRATES/query.php?GROUP=stations&FORMAT=TLE',
   visual:   'https://celestrak.org/SOCRATES/query.php?GROUP=visual&FORMAT=TLE',
@@ -159,15 +163,16 @@ app.get('/health', (req, res) => {
   });
 });
 
-// GET /
-app.get('/', (req, res) => {
+// GET /api — info
+app.get('/api', (req, res) => {
   res.json({
     name: 'Orbital TLE Proxy',
     repo: 'github.com/wjheinle/Orbital',
     endpoints: {
+      'GET /':                    'Orbital satellite tracker PWA',
       'GET /tle/:group':          `Groups: ${VALID_GROUPS.join(' | ')}`,
-      'GET /tle/multi?groups=':   'Comma-separated groups (max 6), e.g. ?groups=starlink,stations',
-      'GET /iss':                 'Live ISS lat/lon/alt from wheretheiss.at',
+      'GET /tle/multi?groups=':   'Comma-separated groups (max 6)',
+      'GET /iss':                 'Live ISS position',
       'GET /health':              'Cache status and uptime',
     },
     cache_ttl: '2 hours',
