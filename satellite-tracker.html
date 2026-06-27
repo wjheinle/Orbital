@@ -126,11 +126,65 @@
   .sleep-title { font-family:'Space Mono',monospace; font-size:13px; color:var(--dim-white); letter-spacing:2px; }
   .sleep-sub { font-family:'Space Mono',monospace; font-size:10px; color:rgba(138,154,192,0.5); letter-spacing:1px; }
   .sleep-dot { width:6px; height:6px; border-radius:50%; background:var(--accent-cyan); opacity:0.3; animation:breathe 4s ease-in-out infinite; }
+
+  /* ── Satellite Detail Sheet ── */
+  .detail-overlay { position:fixed; inset:0; background:rgba(2,4,12,0.88); backdrop-filter:blur(10px); z-index:300; display:flex; align-items:flex-end; justify-content:center; transition:opacity 0.3s; }
+  .detail-overlay.hidden { display:none; }
+  .detail-sheet { background:linear-gradient(180deg,#0c1230 0%,#060910 100%); border:1px solid var(--card-border); border-bottom:none; border-radius:24px 24px 0 0; padding:0 0 48px 0; width:100%; max-width:420px; max-height:88vh; overflow-y:auto; transform:translateY(0); transition:transform 0.35s cubic-bezier(0.32,0.72,0,1); }
+  .detail-handle { width:36px; height:4px; background:rgba(138,154,192,0.3); border-radius:2px; margin:14px auto 0; }
+  .detail-hero { position:relative; width:100%; height:200px; overflow:hidden; background:#030610; }
+  .detail-hero img { width:100%; height:100%; object-fit:cover; opacity:0.85; }
+  .detail-hero-placeholder { width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size:72px; background:radial-gradient(ellipse at center, #0a1a3a 0%, #030610 70%); }
+  .detail-hero-gradient { position:absolute; bottom:0; left:0; right:0; height:80px; background:linear-gradient(transparent, #060910); }
+  .detail-close { position:absolute; top:14px; right:14px; width:32px; height:32px; border-radius:50%; background:rgba(0,0,0,0.6); border:1px solid rgba(255,255,255,0.15); color:rgba(255,255,255,0.7); font-size:16px; display:flex; align-items:center; justify-content:center; cursor:pointer; z-index:1; }
+  .detail-body { padding:16px 20px 0; }
+  .detail-name { font-size:20px; font-weight:700; color:var(--star-white); margin-bottom:2px; }
+  .detail-type { font-family:'Space Mono',monospace; font-size:10px; color:var(--accent-cyan); letter-spacing:2px; text-transform:uppercase; margin-bottom:16px; }
+  .detail-stats { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-bottom:18px; }
+  .detail-stat { background:rgba(0,212,255,0.05); border:1px solid rgba(0,212,255,0.12); border-radius:12px; padding:10px 8px; text-align:center; }
+  .detail-stat-val { font-family:'Space Mono',monospace; font-size:13px; font-weight:700; color:var(--accent-cyan); margin-bottom:2px; }
+  .detail-stat-key { font-size:9px; color:var(--dim-white); letter-spacing:0.5px; text-transform:uppercase; }
+  .detail-divider { height:1px; background:var(--grid-line); margin:0 0 16px; }
+  .detail-ai-label { font-family:'Space Mono',monospace; font-size:9px; letter-spacing:2px; color:var(--dim-white); text-transform:uppercase; margin-bottom:10px; display:flex; align-items:center; gap:8px; }
+  .detail-ai-label::after { content:''; flex:1; height:1px; background:var(--grid-line); }
+  .detail-ai-text { font-size:13px; color:rgba(232,238,255,0.85); line-height:1.7; }
+  .detail-ai-loading { display:flex; align-items:center; gap:10px; padding:16px 0; }
+  .detail-ai-spinner { width:16px; height:16px; border:2px solid rgba(0,212,255,0.2); border-top-color:var(--accent-cyan); border-radius:50%; animation:spin 0.8s linear infinite; flex-shrink:0; }
+  .detail-ai-loading-text { font-family:'Space Mono',monospace; font-size:11px; color:var(--dim-white); }
+  .detail-announce-btn { width:100%; margin-top:18px; padding:13px; background:rgba(0,212,255,0.08); border:1px solid rgba(0,212,255,0.25); border-radius:14px; color:var(--accent-cyan); font-family:'Space Mono',monospace; font-size:11px; letter-spacing:1px; cursor:pointer; transition:all 0.18s; }
+  .detail-announce-btn:active { background:rgba(0,212,255,0.15); }
+  .detail-img-credit { font-size:9px; color:rgba(138,154,192,0.4); font-family:'Space Mono',monospace; text-align:right; margin-top:4px; padding:0 4px; }
 </style>
 </head>
 <body>
 <canvas id="stars-canvas"></canvas>
 <div class="app">
+  <!-- Satellite Detail Sheet -->
+  <div class="detail-overlay hidden" id="detailOverlay" onclick="closeDetail(event)">
+    <div class="detail-sheet" id="detailSheet">
+      <div class="detail-handle"></div>
+      <div class="detail-hero" id="detailHero">
+        <div class="detail-hero-placeholder" id="detailHeroPlaceholder">🛰</div>
+        <div class="detail-hero-gradient"></div>
+        <div class="detail-close" onclick="closeDetailDirect()">✕</div>
+      </div>
+      <div class="detail-body">
+        <div class="detail-name" id="detailName">—</div>
+        <div class="detail-type" id="detailType">—</div>
+        <div class="detail-stats" id="detailStats"></div>
+        <div class="detail-divider"></div>
+        <div class="detail-ai-label">About this satellite</div>
+        <div id="detailAI">
+          <div class="detail-ai-loading">
+            <div class="detail-ai-spinner"></div>
+            <div class="detail-ai-loading-text">Asking Claude…</div>
+          </div>
+        </div>
+        <button class="detail-announce-btn" id="detailAnnounceBtn">🔊 ANNOUNCE POSITION</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Sleep overlay -->
   <div class="sleep-overlay hidden" id="sleepOverlay" onclick="wakeUp()">
     <div class="sleep-dot"></div>
@@ -532,7 +586,7 @@ function renderAll() {
       const badge = isStation ? `<div class="sat-badge badge-station">STATION</div>`
                   : isGeo    ? `<div class="sat-badge badge-geo">GEO</div>`
                   : isOverhead ? `<div class="sat-badge badge-overhead">OVERHEAD</div>` : '';
-      html += `<div class="${cls}" onclick="announceSat('${sat.name.replace(/'/g,"\\'")}')">
+      html += `<div class="${cls}" onclick="openDetail('${sat.name.replace(/'/g,"\\'")}')">
         <div class="sat-icon">${satEmoji(sat.type)}</div>
         <div class="sat-info">
           <div class="sat-name">${sat.name}</div>
@@ -551,7 +605,7 @@ function renderAll() {
   if (below.length > 0) {
     html += `<div class="section-label">Below Horizon · ${below.length}</div><div class="sat-list">`;
     below.slice(0, 20).forEach(sat => {
-      html += `<div class="sat-card" onclick="announceSat('${sat.name.replace(/'/g,"\\'")}')">
+      html += `<div class="sat-card" onclick="openDetail('${sat.name.replace(/'/g,"\\'")}')">
         <div class="sat-icon" style="opacity:.4">${satEmoji(sat.type)}</div>
         <div class="sat-info">
           <div class="sat-name" style="color:var(--dim-white)">${sat.name}</div>
@@ -762,6 +816,177 @@ function announceSat(name) {
   showToast(`📡 ${name}`);
 }
 window.announceSat = announceSat;
+
+// ═══════════════════════════════════════════════
+// SATELLITE DETAIL SHEET
+// ═══════════════════════════════════════════════
+const TYPE_LABELS = {
+  station:'Space Station', starlink:'Starlink Constellation', weather:'Weather Satellite',
+  'earth-obs':'Earth Observation', nav:'Navigation Satellite', comms:'Communications Satellite',
+  telescope:'Space Telescope', oneweb:'OneWeb Constellation', visual:'Satellite', satellite:'Satellite'
+};
+
+const aiCache = {};   // cache AI responses by sat name
+const imgCache = {};  // cache image URLs by sat name
+
+async function openDetail(name) {
+  const sat = allSatellites.find(s => s.name === name);
+  if (!sat) return;
+  resetSleepTimer();
+
+  // Show overlay
+  document.getElementById('detailOverlay').classList.remove('hidden');
+
+  // Populate static fields immediately
+  document.getElementById('detailName').textContent = sat.name;
+  document.getElementById('detailType').textContent = TYPE_LABELS[sat.type] || 'Satellite';
+  document.getElementById('detailHeroPlaceholder').textContent = satEmoji(sat.type);
+
+  // Stats grid
+  const posStr = sat.elevation >= 0 ? `${sat.elevation.toFixed(1)}°` : `${sat.elevation.toFixed(1)}° ↓`;
+  document.getElementById('detailStats').innerHTML = `
+    <div class="detail-stat"><div class="detail-stat-val">${sat.altKm.toLocaleString()}</div><div class="detail-stat-key">km Alt</div></div>
+    <div class="detail-stat"><div class="detail-stat-val">${posStr}</div><div class="detail-stat-key">Elevation</div></div>
+    <div class="detail-stat"><div class="detail-stat-val">${sat.velKms}</div><div class="detail-stat-key">km/s</div></div>
+  `;
+
+  // Wire up announce button
+  document.getElementById('detailAnnounceBtn').onclick = () => announceSat(name);
+
+  // AI info — use cache if available
+  const aiEl = document.getElementById('detailAI');
+  if (aiCache[name]) {
+    aiEl.innerHTML = `<div class="detail-ai-text">${aiCache[name]}</div>`;
+  } else {
+    aiEl.innerHTML = `<div class="detail-ai-loading"><div class="detail-ai-spinner"></div><div class="detail-ai-loading-text">Asking Claude…</div></div>`;
+    fetchSatInfo(sat).then(text => {
+      aiCache[name] = text;
+      // Only update if this sheet is still open for the same sat
+      if (document.getElementById('detailName').textContent === name) {
+        aiEl.innerHTML = `<div class="detail-ai-text">${text}</div>`;
+      }
+    });
+  }
+
+  // Image — use cache if available
+  const hero = document.getElementById('detailHero');
+  const placeholder = document.getElementById('detailHeroPlaceholder');
+  if (imgCache[name]) {
+    showDetailImage(imgCache[name]);
+  } else {
+    placeholder.style.display = 'flex';
+    // Remove any old img
+    const oldImg = hero.querySelector('img');
+    if (oldImg) oldImg.remove();
+    const oldCredit = hero.querySelector('.detail-img-credit');
+    if (oldCredit) oldCredit.remove();
+    fetchSatImage(sat).then(url => {
+      if (url) {
+        imgCache[name] = url;
+        if (document.getElementById('detailName').textContent === name) {
+          showDetailImage(url);
+        }
+      }
+    });
+  }
+}
+window.openDetail = openDetail;
+
+function showDetailImage(url) {
+  const hero = document.getElementById('detailHero');
+  const placeholder = document.getElementById('detailHeroPlaceholder');
+  const oldImg = hero.querySelector('img');
+  if (oldImg) oldImg.remove();
+  const img = document.createElement('img');
+  img.src = url;
+  img.alt = 'Satellite image';
+  img.onerror = () => { img.remove(); placeholder.style.display = 'flex'; };
+  img.onload = () => { placeholder.style.display = 'none'; };
+  hero.insertBefore(img, hero.querySelector('.detail-hero-gradient'));
+}
+
+async function fetchSatInfo(sat) {
+  // Clean up the name for the prompt
+  const cleanName = sat.name.replace('(ZARYA)', '').replace('(UNITY)', '').trim();
+  const isStarlink = sat.type === 'starlink';
+
+  // For Starlink, give a generic but interesting response without an API call
+  if (isStarlink) {
+    return `<strong>Starlink</strong> satellites are part of SpaceX's low-Earth orbit broadband constellation, currently the world's largest satellite network with over 6,000 active spacecraft. Flying at ~550 km altitude, each satellite weighs about 300 kg and uses krypton ion thrusters for orbital maneuvering. They communicate via Ku and Ka-band phased array antennas and can achieve speeds of up to 200 Mbps for end users. The flat-panel design with a single deployable solar array minimizes atmospheric drag at low altitude.`;
+  }
+
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1000,
+        messages: [{
+          role: 'user',
+          content: `Give me 3-4 sentences of interesting facts about the satellite "${cleanName}" (type: ${sat.type}, altitude: ${sat.altKm} km). Include its mission/purpose, launch date if known, and one surprising or cool fact. Keep it conversational and engaging, no bullet points. If it's an obscure satellite you're not sure about, say so briefly and describe what satellites of that type typically do. Return plain text only, no markdown except <strong> tags for the satellite name on first mention.`
+        }]
+      })
+    });
+    const data = await resp.json();
+    return data.content?.[0]?.text || 'No information available.';
+  } catch(e) {
+    return `<strong>${cleanName}</strong> is a ${TYPE_LABELS[sat.type] || 'satellite'} orbiting at ${sat.altKm.toLocaleString()} km altitude, traveling at ${sat.velKms} km/s. Unable to load additional details right now.`;
+  }
+}
+
+async function fetchSatImage(sat) {
+  const cleanName = sat.name.replace('(ZARYA)', '').replace('STARLINK-', 'Starlink ').trim();
+
+  // Build a good search query per type
+  const queries = {
+    station:    `${cleanName} space station NASA photo`,
+    telescope:  `${cleanName} space telescope NASA`,
+    weather:    `${cleanName} weather satellite NOAA`,
+    'earth-obs': `${cleanName} satellite NASA`,
+    nav:        `${cleanName} GPS satellite`,
+    starlink:   'SpaceX Starlink satellite deploy orbit photo',
+    oneweb:     'OneWeb satellite constellation photo',
+    comms:      `${cleanName} communications satellite`,
+  };
+  const q = encodeURIComponent(queries[sat.type] || `${cleanName} satellite`);
+
+  try {
+    const resp = await fetch(`https://api.anthropic.com/v1/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1000,
+        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+        messages: [{
+          role: 'user',
+          content: `Find a good publicly available image URL of the satellite ${cleanName}. Search for "${decodeURIComponent(q)}" and return only a single direct image URL (ending in .jpg, .jpeg, .png, or .webp) from NASA, ESA, NOAA, SpaceX, or Wikipedia. Return just the URL, nothing else.`
+        }]
+      })
+    });
+    const data = await resp.json();
+    const text = data.content?.filter(b => b.type === 'text').map(b => b.text).join('') || '';
+    // Extract URL from response
+    const match = text.match(/https?:\/\/[^\s"'<>]+\.(?:jpg|jpeg|png|webp)/i);
+    return match ? match[0] : null;
+  } catch(e) {
+    return null;
+  }
+}
+
+function closeDetail(e) {
+  // Only close if clicking the overlay backdrop itself
+  if (e.target === document.getElementById('detailOverlay')) {
+    closeDetailDirect();
+  }
+}
+
+function closeDetailDirect() {
+  document.getElementById('detailOverlay').classList.add('hidden');
+}
+window.closeDetailDirect = closeDetailDirect;
+window.closeDetail = closeDetail;
 
 function showToast(msg) {
   const t = document.getElementById('toast');
