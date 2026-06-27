@@ -670,8 +670,11 @@ function drawSkyDome(sats) {
     ctx.strokeStyle = 'rgba(0,212,255,0.2)'; ctx.lineWidth = 1; ctx.stroke();
   }
 
-  // Plot satellites
-  const sample = sats.slice(0, 500);
+  // In zoom mode, pull from ALL satellites sorted by elevation so overhead ones aren't missed
+  const pool = domeZoomed
+    ? [...allSatellites].sort((a, b) => b.elevation - a.elevation)
+    : sats;
+  const sample = pool.slice(0, 500);
   sample.forEach(sat => {
     // In zoom mode, only show sats above 45° elevation
     if (domeZoomed && sat.elevation < 45) return;
@@ -681,11 +684,13 @@ function drawSkyDome(sats) {
     const az = (sat.azimuth - 90 + 360) % 360;
     const azRad = az * Math.PI / 180;
 
-    // Map elevation to canvas distance
-    // Normal: el=0→edge, el=90→center
-    // Zoomed: el=45→edge, el=90→center
-    const elClamped = Math.min(el, maxEl);
-    const dist = R * (1 - (elClamped - (domeZoomed ? 45 : 0)) / (maxEl - (domeZoomed ? 45 : 0)));
+    // Map elevation to canvas distance from center
+    // Normal: el=0 → R (edge), el=90 → 0 (center)
+    // Zoomed: el=45 → R (edge), el=90 → 0 (center)
+    const minEl = domeZoomed ? 45 : 0;
+    const range = 90 - minEl;
+    const elClamped = Math.min(Math.max(el, minEl), 90);
+    const dist = R * (1 - (elClamped - minEl) / range);
 
     const sx = cx + dist * Math.cos(azRad);
     const sy = cy + dist * Math.sin(azRad);
@@ -693,10 +698,7 @@ function drawSkyDome(sats) {
     const isStation = sat.type === 'station';
     const isHigh = sat.elevation > (domeZoomed ? 70 : 30);
     const color = isStation ? '#f0c040' : isHigh ? '#00d4ff' : '#00ff88';
-    const size = isStation ? 6 : isHigh ? 4 : domeZoomed ? 4 : 3;
-    const alpha = sat.elevation >= 0 ? 1 : 0.2;
-
-    ctx.globalAlpha = alpha;
+    const size = isStation ? 6 : domeZoomed ? 4 : isHigh ? 4 : 3;
 
     // Glow for prominent sats
     if (isStation || sat.elevation > (domeZoomed ? 60 : 40)) {
@@ -708,10 +710,9 @@ function drawSkyDome(sats) {
 
     ctx.beginPath(); ctx.arc(sx, sy, size, 0, Math.PI*2);
     ctx.fillStyle = color; ctx.fill();
-    ctx.globalAlpha = 1;
 
     // Labels — more generous in zoom mode since fewer sats shown
-    const labelThreshold = domeZoomed ? 45 : 20;
+    const labelThreshold = domeZoomed ? 50 : 20;
     if (sat.elevation > labelThreshold) {
       ctx.font = domeZoomed ? '10px Inter' : '8px Inter';
       ctx.fillStyle = color;
