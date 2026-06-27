@@ -34,8 +34,14 @@
   .filter-pill.loading { opacity:0.5; }
 
   .sky-section { padding:16px 20px; display:flex; flex-direction:column; align-items:center; }
-  .sky-dome-wrap { position:relative; width:260px; height:260px; margin-bottom:14px; }
-  #sky-canvas { width:260px; height:260px; border-radius:50%; border:1.5px solid var(--card-border); box-shadow:0 0 40px rgba(0,212,255,0.08),inset 0 0 60px rgba(0,0,20,0.8); display:block; }
+  .sky-dome-wrap { position:relative; width:260px; height:260px; margin-bottom:14px; cursor:pointer; transition: width 0.35s ease, height 0.35s ease; }
+  .sky-dome-wrap.zoomed { width:320px; height:320px; }
+  #sky-canvas { width:260px; height:260px; border-radius:50%; border:1.5px solid var(--card-border); box-shadow:0 0 40px rgba(0,212,255,0.08),inset 0 0 60px rgba(0,0,20,0.8); display:block; transition: width 0.35s ease, height 0.35s ease, box-shadow 0.35s ease; }
+  .sky-dome-wrap.zoomed #sky-canvas { width:320px; height:320px; box-shadow:0 0 60px rgba(0,212,255,0.18),inset 0 0 80px rgba(0,0,20,0.8); }
+  .dome-tap-hint { position:absolute; bottom:-22px; left:50%; transform:translateX(-50%); font-family:'Space Mono',monospace; font-size:9px; color:rgba(138,154,192,0.4); letter-spacing:1px; white-space:nowrap; transition:opacity 0.3s; }
+  .sky-dome-wrap.zoomed .dome-tap-hint { color:rgba(0,212,255,0.4); }
+  .zoom-badge { position:absolute; top:8px; right:8px; font-family:'Space Mono',monospace; font-size:8px; letter-spacing:1px; padding:3px 8px; border-radius:10px; background:rgba(0,212,255,0.12); color:var(--accent-cyan); border:1px solid rgba(0,212,255,0.25); opacity:0; transition:opacity 0.3s; pointer-events:none; }
+  .sky-dome-wrap.zoomed .zoom-badge { opacity:1; }
   .dome-label { position:absolute; font-family:'Space Mono',monospace; font-size:9px; color:rgba(138,154,192,0.5); letter-spacing:1px; }
   .dome-label.n { top:-14px; left:50%; transform:translateX(-50%); }
   .dome-label.s { bottom:-14px; left:50%; transform:translateX(-50%); }
@@ -212,12 +218,14 @@
   </div>
 
   <div class="sky-section">
-    <div class="sky-dome-wrap">
-      <canvas id="sky-canvas" width="260" height="260"></canvas>
+    <div class="sky-dome-wrap" id="skyDomeWrap" onclick="toggleDomeZoom()">
+      <canvas id="sky-canvas" width="320" height="320"></canvas>
       <div class="dome-label n">N</div>
       <div class="dome-label s">S</div>
       <div class="dome-label e">E</div>
       <div class="dome-label w">W</div>
+      <div class="zoom-badge">45° OVERHEAD</div>
+      <div class="dome-tap-hint" id="domeTapHint">TAP TO ZOOM</div>
     </div>
     <div class="overhead-banner" id="overheadBanner" style="display:none">
       <div class="overhead-dot"></div>
@@ -268,6 +276,7 @@ let activeGroup = 'all';
 let groupCache = {};          // raw TLE arrays by group name
 let loadedGroups = new Set();
 let updateInterval = null;
+let domeZoomed = false;       // false = full sky (90°), true = overhead zoom (45°)
 
 // ═══════════════════════════════════════════════
 // FALLBACK TLEs (used if proxy not yet deployed)
@@ -594,52 +603,133 @@ function renderAll() {
 }
 
 // ═══════════════════════════════════════════════
+// DOME ZOOM TOGGLE
+// ═══════════════════════════════════════════════
+function toggleDomeZoom() {
+  domeZoomed = !domeZoomed;
+  const wrap = document.getElementById('skyDomeWrap');
+  wrap.classList.toggle('zoomed', domeZoomed);
+  document.getElementById('domeTapHint').textContent = domeZoomed ? 'TAP TO ZOOM OUT' : 'TAP TO ZOOM';
+  // Redraw immediately with new zoom level
+  drawSkyDome(displaySats.length ? displaySats : allSatellites);
+}
+window.toggleDomeZoom = toggleDomeZoom;
+
+// ═══════════════════════════════════════════════
 // SKY DOME
 // ═══════════════════════════════════════════════
 function drawSkyDome(sats) {
   const c = document.getElementById('sky-canvas');
   const ctx = c.getContext('2d');
-  const W = c.width, H = c.height, cx = W/2, cy = H/2, R = W/2 - 4;
+
+  // Canvas resolution is always 320×320; CSS scales it via the .zoomed class
+  const W = 320, H = 320;
+  c.width = W; c.height = H;
+  const cx = W/2, cy = H/2, R = W/2 - 6;
+
   ctx.clearRect(0, 0, W, H);
+
+  // Background
   const bg = ctx.createRadialGradient(cx, cy, 0, cx, cy, R);
   bg.addColorStop(0, '#080d1f'); bg.addColorStop(1, '#02040b');
   ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI*2); ctx.fillStyle = bg; ctx.fill();
+
+  // In zoom mode, we show 45° field of view (inner half of the dome)
+  // In normal mode, we show full 90° (horizon to zenith)
+  const maxEl = domeZoomed ? 45 : 90;
+
+  // Grid rings — adapt labels to zoom level
   ctx.strokeStyle = 'rgba(0,212,255,0.07)'; ctx.lineWidth = 1;
-  [0.25, 0.5, 0.75, 1.0].forEach(f => { ctx.beginPath(); ctx.arc(cx, cy, R*f, 0, Math.PI*2); ctx.stroke(); });
+  if (domeZoomed) {
+    // Zoomed: rings at 15°, 30°, 45° (edge = horizon of zoom)
+    [1/3, 2/3, 1.0].forEach(f => { ctx.beginPath(); ctx.arc(cx, cy, R*f, 0, Math.PI*2); ctx.stroke(); });
+    ctx.fillStyle = 'rgba(138,154,192,0.4)'; ctx.font = '9px Space Mono'; ctx.textAlign = 'center';
+    ctx.fillText('75°', cx, cy - R*(1/3) - 3);
+    ctx.fillText('60°', cx, cy - R*(2/3) - 3);
+    ctx.fillText('45°', cx, cy - R - 3);
+  } else {
+    // Normal: rings at 30°, 60°, 90° (horizon)
+    [1/3, 2/3, 1.0].forEach(f => { ctx.beginPath(); ctx.arc(cx, cy, R*f, 0, Math.PI*2); ctx.stroke(); });
+    ctx.fillStyle = 'rgba(138,154,192,0.35)'; ctx.font = '9px Space Mono'; ctx.textAlign = 'center';
+    ctx.fillText('60°', cx, cy - R*(1/3) - 3);
+    ctx.fillText('30°', cx, cy - R*(2/3) - 3);
+  }
+
+  // Cross hairs
+  ctx.strokeStyle = 'rgba(0,212,255,0.07)';
   ctx.beginPath(); ctx.moveTo(cx, cy-R); ctx.lineTo(cx, cy+R); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(cx-R, cy); ctx.lineTo(cx+R, cy); ctx.stroke();
-  ctx.fillStyle = 'rgba(138,154,192,0.35)'; ctx.font = '8px Space Mono'; ctx.textAlign = 'center';
-  ctx.fillText('30°', cx, cy - R*0.5 - 3); ctx.fillText('60°', cx, cy - R*0.25 - 3);
-  ctx.beginPath(); ctx.arc(cx, cy, 3, 0, Math.PI*2); ctx.fillStyle = 'rgba(0,212,255,0.4)'; ctx.fill();
 
-  // Sample max 300 sats for dome (Starlink can be thousands)
-  const sample = sats.slice(0, 300);
+  // Zenith dot
+  ctx.beginPath(); ctx.arc(cx, cy, 4, 0, Math.PI*2);
+  ctx.fillStyle = 'rgba(0,212,255,0.5)'; ctx.fill();
+
+  // Zoom mode: draw a subtle "you are here" crosshair pulse ring
+  if (domeZoomed) {
+    ctx.beginPath(); ctx.arc(cx, cy, 12, 0, Math.PI*2);
+    ctx.strokeStyle = 'rgba(0,212,255,0.2)'; ctx.lineWidth = 1; ctx.stroke();
+  }
+
+  // Plot satellites
+  const sample = sats.slice(0, 500);
   sample.forEach(sat => {
-    if (sat.elevation < -15) return;
+    // In zoom mode, only show sats above 45° elevation
+    if (domeZoomed && sat.elevation < 45) return;
+    if (!domeZoomed && sat.elevation < -15) return;
+
     const el = Math.max(sat.elevation, 0);
     const az = (sat.azimuth - 90 + 360) % 360;
     const azRad = az * Math.PI / 180;
-    const dist = R * (1 - el / 90);
+
+    // Map elevation to canvas distance
+    // Normal: el=0→edge, el=90→center
+    // Zoomed: el=45→edge, el=90→center
+    const elClamped = Math.min(el, maxEl);
+    const dist = R * (1 - (elClamped - (domeZoomed ? 45 : 0)) / (maxEl - (domeZoomed ? 45 : 0)));
+
     const sx = cx + dist * Math.cos(azRad);
     const sy = cy + dist * Math.sin(azRad);
+
     const isStation = sat.type === 'station';
-    const color = isStation ? '#f0c040' : sat.elevation > 30 ? '#00d4ff' : '#00ff88';
-    const size = isStation ? 5 : sat.elevation > 30 ? 3 : 2;
+    const isHigh = sat.elevation > (domeZoomed ? 70 : 30);
+    const color = isStation ? '#f0c040' : isHigh ? '#00d4ff' : '#00ff88';
+    const size = isStation ? 6 : isHigh ? 4 : domeZoomed ? 4 : 3;
     const alpha = sat.elevation >= 0 ? 1 : 0.2;
+
     ctx.globalAlpha = alpha;
-    if (isStation || sat.elevation > 40) {
-      const glow = ctx.createRadialGradient(sx, sy, 0, sx, sy, size+5);
-      glow.addColorStop(0, color+'55'); glow.addColorStop(1, 'transparent');
-      ctx.beginPath(); ctx.arc(sx, sy, size+5, 0, Math.PI*2); ctx.fillStyle = glow; ctx.fill();
+
+    // Glow for prominent sats
+    if (isStation || sat.elevation > (domeZoomed ? 60 : 40)) {
+      const glow = ctx.createRadialGradient(sx, sy, 0, sx, sy, size + 7);
+      glow.addColorStop(0, color + '55'); glow.addColorStop(1, 'transparent');
+      ctx.beginPath(); ctx.arc(sx, sy, size + 7, 0, Math.PI*2);
+      ctx.fillStyle = glow; ctx.fill();
     }
-    ctx.beginPath(); ctx.arc(sx, sy, size, 0, Math.PI*2); ctx.fillStyle = color; ctx.fill();
+
+    ctx.beginPath(); ctx.arc(sx, sy, size, 0, Math.PI*2);
+    ctx.fillStyle = color; ctx.fill();
     ctx.globalAlpha = 1;
-    if (sat.elevation > 20 && size >= 3) {
-      ctx.font = '8px Inter'; ctx.fillStyle = color; ctx.textAlign = 'left'; ctx.globalAlpha = 0.8;
-      ctx.fillText(sat.name.split(' ')[0], sx + size + 3, sy + 3);
+
+    // Labels — more generous in zoom mode since fewer sats shown
+    const labelThreshold = domeZoomed ? 45 : 20;
+    if (sat.elevation > labelThreshold) {
+      ctx.font = domeZoomed ? '10px Inter' : '8px Inter';
+      ctx.fillStyle = color;
+      ctx.textAlign = 'left';
+      ctx.globalAlpha = 0.9;
+      const short = sat.name.replace('(ZARYA)', '').replace('STARLINK-', 'SL-').trim();
+      ctx.fillText(short, sx + size + 3, sy + 4);
       ctx.globalAlpha = 1;
     }
   });
+
+  // Zoom mode: show "nothing overhead" message if empty
+  if (domeZoomed && sample.filter(s => s.elevation >= 45).length === 0) {
+    ctx.fillStyle = 'rgba(138,154,192,0.4)';
+    ctx.font = '11px Space Mono';
+    ctx.textAlign = 'center';
+    ctx.fillText('NOTHING ABOVE 45°', cx, cy + 4);
+  }
 }
 
 // ═══════════════════════════════════════════════
