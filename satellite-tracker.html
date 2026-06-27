@@ -670,10 +670,18 @@ function drawSkyDome(sats) {
     ctx.strokeStyle = 'rgba(0,212,255,0.2)'; ctx.lineWidth = 1; ctx.stroke();
   }
 
-  // In zoom mode, pull from ALL satellites sorted by elevation so overhead ones aren't missed
-  const pool = domeZoomed
-    ? [...allSatellites].sort((a, b) => b.elevation - a.elevation)
-    : sats;
+  // Both modes: filter by active group from the full satellite pool, sort highest first
+  const filtered = activeGroup === 'all' ? allSatellites : allSatellites.filter(s => {
+    if (activeGroup === 'stations') return s.type === 'station';
+    if (activeGroup === 'starlink') return s.type === 'starlink';
+    if (activeGroup === 'visual')   return s.type === 'visual' || s.type === 'telescope' || s.type === 'earth-obs';
+    if (activeGroup === 'weather')  return s.type === 'weather';
+    if (activeGroup === 'gps')      return s.type === 'nav';
+    if (activeGroup === 'oneweb')   return s.type === 'oneweb';
+    if (activeGroup === 'iridium')  return s.type === 'comms';
+    return true;
+  });
+  const pool = [...filtered].sort((a, b) => b.elevation - a.elevation);
   const sample = pool.slice(0, 500);
   sample.forEach(sat => {
     // In zoom mode, only show sats above 45° elevation
@@ -725,7 +733,7 @@ function drawSkyDome(sats) {
   });
 
   // Zoom mode: show "nothing overhead" message if empty
-  if (domeZoomed && sample.filter(s => s.elevation >= 45).length === 0) {
+  if (domeZoomed && filtered.filter(s => s.elevation >= 45).length === 0) {
     ctx.fillStyle = 'rgba(138,154,192,0.4)';
     ctx.font = '11px Space Mono';
     ctx.textAlign = 'center';
