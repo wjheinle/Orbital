@@ -1244,11 +1244,24 @@ async function startTracking() {
 
   document.getElementById('mainContent').innerHTML = `<div class="loading-state"><div class="loading-orbit"></div><div class="loading-text">LOADING SATELLITES…</div></div>`;
 
-  await loadGroup('all');
+  // Load stations + visual first so dome populates immediately
+  await Promise.all([loadGroup('stations'), loadGroup('visual')]);
   loadedGroups.add('stations'); loadedGroups.add('visual');
   renderAll();
   updateInterval = setInterval(refresh, 10000);
-  resetSleepTimer(); // start the sleep countdown
+  resetSleepTimer();
+
+  // Then load remaining groups in the background — dome + list update as each arrives
+  const remaining = ['starlink', 'weather', 'gps', 'oneweb', 'iridium'];
+  remaining.forEach(async g => {
+    try {
+      await loadGroup(g);
+      loadedGroups.add(g);
+      renderAll(); // re-render as each group lands
+    } catch(e) {
+      console.warn(`Background load failed for ${g}:`, e.message);
+    }
+  });
 }
 
 // ═══════════════════════════════════════════════
